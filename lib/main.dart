@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
 
 void main() {
@@ -40,17 +39,15 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
   int _currentIndex = 0;
   bool _isMonitoring = false;
   double _sensitivity = 65.0; 
-  double _currentDecibel = 30.0;
+  double _currentDecibel = 32.0;
   bool _isAlarmTriggered = false;
-  Timer? _timer;
-
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  Timer? _soundTimer;
 
   String babyName = "سحر";
   String babyAge = "4 أشهر و 15 يوماً";
 
   List<Map<String, String>> cryLogs = [
-    {'time': 'اليوم - 02:15 م', 'duration': 'دقيقة و 20 ثانية', 'decibel': '76 dB'},
+    {'time': '02:15 م', 'duration': 'دقيقة و 20 ثانية', 'decibel': '76 dB'},
   ];
 
   late AnimationController _pulseController;
@@ -60,17 +57,16 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
     super.initState();
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
-      lowerBound: 0.85,
-      upperBound: 1.15,
+      duration: const Duration(milliseconds: 900),
+      lowerBound: 0.88,
+      upperBound: 1.12,
     )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _soundTimer?.cancel();
     _pulseController.dispose();
-    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -78,16 +74,16 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
     setState(() {
       _isMonitoring = !_isMonitoring;
       if (_isMonitoring) {
-        _timer = Timer.periodic(const Duration(milliseconds: 400), (t) {
+        _soundTimer = Timer.periodic(const Duration(milliseconds: 350), (timer) {
           setState(() {
-            _currentDecibel = 30.0 + (DateTime.now().millisecond % 50);
+            _currentDecibel = 28.0 + (DateTime.now().millisecond % 55);
             if (_currentDecibel > _sensitivity && !_isAlarmTriggered) {
               _triggerAlarm();
             }
           });
         });
       } else {
-        _timer?.cancel();
+        _soundTimer?.cancel();
         _isAlarmTriggered = false;
         _currentDecibel = 0.0;
       }
@@ -99,7 +95,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
       _isAlarmTriggered = true;
       cryLogs.insert(0, {
         'time': 'الآن',
-        'duration': 'جاري البكاء',
+        'duration': 'جاري رصد البكاء',
         'decibel': '${_currentDecibel.toInt()} dB',
       });
     });
@@ -123,11 +119,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
                 : _buildCryLogsScreen(),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (index) {
-            setState(() {
-              _currentIndex = index;
-            });
-          },
+          onTap: (index) => setState(() => _currentIndex = index),
           backgroundColor: Colors.white,
           selectedItemColor: const Color(0xFFFF7E95),
           unselectedItemColor: Colors.grey.shade400,
@@ -174,7 +166,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
       children: const [
         Icon(Icons.child_friendly_rounded, color: Color(0xFFFF7E95), size: 28),
         Text('مراقب الطفل الذكي', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2E2D4D))),
-        Icon(Icons.shield_outlined, color: Color(0xFF8E8AFF), size: 28),
+        Icon(Icons.security_rounded, color: Color(0xFF8E8AFF), size: 28),
       ],
     );
   }
@@ -289,7 +281,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
             bottom: 15,
             child: Text(
               _isMonitoring
-                  ? (_currentDecibel > _sensitivity ? '🚨 تم التقاط بكاء!' : '💤 الغرفة هادئة')
+                  ? (_currentDecibel > _sensitivity ? '🚨 تم رصد صوت بكاء!' : '💤 الغرفة هادئة')
                   : 'المراقبة غير مفعلة',
               style: TextStyle(
                 fontSize: 13,
@@ -319,16 +311,16 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('حساسية التقاط البكاء', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              const Text('حساسية استشعار الصوت', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
               Text('${_sensitivity.toInt()} dB', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFFFF7E95))),
             ],
           ),
           const SizedBox(height: 5),
-          const Text('اسحب لتحديد مستوى الحساسية المرغوب', style: TextStyle(fontSize: 11, color: Colors.grey)),
+          const Text('اسحب لتحديد حساسية الاستجابة للتنبيه', style: TextStyle(fontSize: 11, color: Colors.grey)),
           Slider(
             value: _sensitivity,
             min: 30.0,
-            max: 90.0,
+            max: 85.0,
             activeColor: const Color(0xFFFF7E95),
             inactiveColor: Colors.grey.shade200,
             onChanged: (val) {
@@ -358,7 +350,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
             Icon(_isMonitoring ? Icons.stop_rounded : Icons.play_arrow_rounded, color: Colors.white, size: 24),
             const SizedBox(width: 8),
             Text(
-              _isMonitoring ? 'إيقاف المراقبة' : 'بدء تشغيل المراقبة',
+              _isMonitoring ? 'إيقاف المراقبة' : 'بدء تشغيل الحراسة',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
             ),
           ],
@@ -369,7 +361,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
 
   Widget _buildAlarmOverlay() {
     return Container(
-      color: const Color(0xFFFE5B78).withOpacity(0.95),
+      color: const Color(0xFFFE5B78).withOpacity(0.96),
       width: double.infinity,
       height: double.infinity,
       child: Column(
@@ -377,9 +369,9 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
         children: [
           const Icon(Icons.notifications_active_rounded, size: 85, color: Colors.white),
           const SizedBox(height: 20),
-          Text('تنبيه! $babyName تبكي الآن 😭', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+          Text('تنبيه! سحر تبكي الآن 😭', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
           const SizedBox(height: 10),
-          Text('شدة الصوت: ${_currentDecibel.toInt()} ديسيبل', style: const TextStyle(fontSize: 16, color: Colors.white70)),
+          Text('شدة الصوت: ${_currentDecibel.toInt()} dB', style: const TextStyle(fontSize: 16, color: Colors.white70)),
           const SizedBox(height: 40),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -429,12 +421,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
           CircleAvatar(backgroundColor: color.withOpacity(0.15), child: Icon(icon, color: color)),
           const SizedBox(width: 15),
           Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
-          IconButton(
-            icon: const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF8E8AFF), size: 32),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تشغيل: $title')));
-            },
-          ),
+          const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF8E8AFF), size: 32),
         ],
       ),
     );
@@ -447,7 +434,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('سجل البكاء', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const Text('سجل البكاء والتنبيهات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
             Expanded(
               child: ListView.builder(
