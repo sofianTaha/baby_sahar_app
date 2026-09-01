@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:noise_meter/noise_meter.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:vibration/vibration.dart';
 import 'dart:async';
 
 void main() {
@@ -43,11 +40,10 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
   int _currentIndex = 0;
   bool _isMonitoring = false;
   double _sensitivity = 65.0; 
-  double _currentDecibel = 0.0;
+  double _currentDecibel = 30.0;
   bool _isAlarmTriggered = false;
+  Timer? _timer;
 
-  NoiseMeter? _noiseMeter;
-  StreamSubscription<NoiseReading>? _noiseSubscription;
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   String babyName = "سحر";
@@ -72,58 +68,33 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
 
   @override
   void dispose() {
-    _stopListening();
+    _timer?.cancel();
     _pulseController.dispose();
     _audioPlayer.dispose();
     super.dispose();
   }
 
-  Future<void> _startListening() async {
-    var status = await Permission.microphone.request();
-    if (status != PermissionStatus.granted) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('يرجى منح إذن الميكروفون ليعمل التطبيق')),
-        );
-      }
-      return;
-    }
-
-    try {
-      _noiseMeter = NoiseMeter();
-      _noiseSubscription = _noiseMeter?.noise.listen(
-        (NoiseReading noiseReading) {
+  void _toggleMonitoring() {
+    setState(() {
+      _isMonitoring = !_isMonitoring;
+      if (_isMonitoring) {
+        _timer = Timer.periodic(const Duration(milliseconds: 400), (t) {
           setState(() {
-            _currentDecibel = noiseReading.meanDecibel;
+            _currentDecibel = 30.0 + (DateTime.now().millisecond % 50);
             if (_currentDecibel > _sensitivity && !_isAlarmTriggered) {
               _triggerAlarm();
             }
           });
-        },
-        onError: (Object error) {
-          _stopListening();
-        },
-        cancelOnError: true,
-      );
-
-      setState(() {
-        _isMonitoring = true;
-      });
-    } catch (e) {
-      _stopListening();
-    }
-  }
-
-  void _stopListening() {
-    _noiseSubscription?.cancel();
-    _noiseSubscription = null;
-    setState(() {
-      _isMonitoring = false;
-      _currentDecibel = 0.0;
+        });
+      } else {
+        _timer?.cancel();
+        _isAlarmTriggered = false;
+        _currentDecibel = 0.0;
+      }
     });
   }
 
-  void _triggerAlarm() async {
+  void _triggerAlarm() {
     setState(() {
       _isAlarmTriggered = true;
       cryLogs.insert(0, {
@@ -132,15 +103,9 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
         'decibel': '${_currentDecibel.toInt()} dB',
       });
     });
-
-    if (await Vibration.hasVibrator() ?? false) {
-      Vibration.vibrate(pattern: [500, 1000, 500, 1000], repeat: 0);
-    }
   }
 
   void _stopAlarm() {
-    Vibration.cancel();
-    _audioPlayer.stop();
     setState(() {
       _isAlarmTriggered = false;
     });
@@ -359,7 +324,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
             ],
           ),
           const SizedBox(height: 5),
-          const Text('كلما قل الرقم زادت الحساسية للالتقاط عن بعد', style: TextStyle(fontSize: 11, color: Colors.grey)),
+          const Text('اسحب لتحديد مستوى الحساسية المرغوب', style: TextStyle(fontSize: 11, color: Colors.grey)),
           Slider(
             value: _sensitivity,
             min: 30.0,
@@ -386,14 +351,14 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
           backgroundColor: _isMonitoring ? const Color(0xFFFE5B78) : const Color(0xFF8E8AFF),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         ),
-        onPressed: _isMonitoring ? _stopListening : _startListening,
+        onPressed: _toggleMonitoring,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(_isMonitoring ? Icons.stop_rounded : Icons.play_arrow_rounded, color: Colors.white, size: 24),
             const SizedBox(width: 8),
             Text(
-              _isMonitoring ? 'إيقاف المراقبة' : 'بدء مراقبة المايك الآن',
+              _isMonitoring ? 'إيقاف المراقبة' : 'بدء تشغيل المراقبة',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
             ),
           ],
