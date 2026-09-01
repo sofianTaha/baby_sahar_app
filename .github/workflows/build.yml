@@ -22,9 +22,18 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Create Flutter skeleton
+      - name: Setup Android Project & Fix Configs
         run: |
           flutter create --org com.example --project-name baby_sahar_app .
+          
+          # رفع minSdkVersion ليتوافق مع مكتبة الميكروفون
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' android/app/build.gradle || true
+          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/' android/app/build.gradle || true
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/' android/app/build.gradle || true
+
+          # إضافة صلاحيات المايك والاهتزاز
+          sed -i '/<application/i <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n<uses-permission android:name="android.permission.VIBRATE"/>' android/app/src/main/AndroidManifest.xml
+
           flutter pub get
 
       - name: Build APK
