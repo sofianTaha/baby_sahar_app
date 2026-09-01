@@ -22,18 +22,27 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Setup Android Project & Fix Configs
+      - name: Setup Android Project & Permissions
         run: |
           flutter create --org com.example --project-name baby_sahar_app .
           
-          # رفع minSdkVersion ليتوافق مع مكتبة الميكروفون
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' android/app/build.gradle || true
-          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/' android/app/build.gradle || true
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/' android/app/build.gradle || true
+          # تعديل minSdkVersion في جميع ملفات الإعدادات سواء كانت groovy أو kts
+          find android/ -name "build.gradle*" -exec sed -i 's/minSdk.*=.*/minSdk = 23/g' {} +
+          find android/ -name "build.gradle*" -exec sed -i 's/minSdkVersion.*/minSdkVersion 23/g' {} +
 
-          # إضافة صلاحيات المايك والاهتزاز
-          sed -i '/<application/i <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n<uses-permission android:name="android.permission.VIBRATE"/>' android/app/src/main/AndroidManifest.xml
-
+          # إضافة الصلاحيات لملف AndroidManifest بطريقة برمجية نظيفة
+          python3 -c '
+          import os
+          path = "android/app/src/main/AndroidManifest.xml"
+          if os.path.exists(path):
+              with open(path, "r") as f:
+                  data = f.read()
+              perms = "\n    <uses-permission android:name=\"android.permission.RECORD_AUDIO\"/>\n    <uses-permission android:name=\"android.permission.VIBRATE\"/>\n"
+              if "RECORD_AUDIO" not in data:
+                  data = data.replace("<application", perms + "    <application")
+                  with open(path, "w") as f:
+                      f.write(data)
+          '
           flutter pub get
 
       - name: Build APK
