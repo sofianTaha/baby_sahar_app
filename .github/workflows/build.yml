@@ -22,27 +22,10 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Setup Android Project
+      - name: Create Flutter skeleton
         run: |
           flutter create --org com.example --project-name baby_sahar_app .
           flutter pub get
-
-      - name: Add Permissions to AndroidManifest
-        run: |
-          python3 -c '
-          path = "android/app/src/main/AndroidManifest.xml"
-          with open(path, "r") as f:
-              content = f.read()
-          perms = """
-              <uses-permission android:name="android.permission.RECORD_AUDIO"/>
-              <uses-permission android:name="android.permission.VIBRATE"/>
-              <uses-permission android:name="android.permission.WAKE_LOCK"/>
-          """
-          if "<application" in content and "RECORD_AUDIO" not in content:
-              content = content.replace("<application", perms + "\n    <application")
-              with open(path, "w") as f:
-                  f.write(content)
-          '
 
       - name: Build APK
         run: flutter build apk --release
