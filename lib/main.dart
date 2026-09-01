@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:noise_meter/noise_meter.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:vibration/vibration.dart';
 import 'dart:async';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const BabySaharApp());
 }
 
@@ -14,7 +19,6 @@ class BabySaharApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Baby Sahar Monitor',
       theme: ThemeData(
-        fontFamily: 'Roboto',
         scaffoldBackgroundColor: const Color(0xFFF9F7FC),
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFFFF7E95),
@@ -38,14 +42,20 @@ class MainDashboard extends StatefulWidget {
 class _MainDashboardState extends State<MainDashboard> with SingleTickerProviderStateMixin {
   int _currentIndex = 0;
   bool _isMonitoring = false;
-  double _sensitivity = 65.0; // عتبة الحساسية بالديسيبل
-  double _currentDecibel = 32.0; // ديسيبل تجريبي متحرك
+  double _sensitivity = 65.0; 
+  double _currentDecibel = 0.0;
   bool _isAlarmTriggered = false;
-  Timer? _soundSimulatorTimer;
 
-  // بيانات الطفل
+  NoiseMeter? _noiseMeter;
+  StreamSubscription<NoiseReading>? _noiseSubscription;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
   String babyName = "سحر";
   String babyAge = "4 أشهر و 15 يوماً";
+
+  List<Map<String, String>> cryLogs = [
+    {'time': 'اليوم - 02:15 م', 'duration': 'دقيقة و 20 ثانية', 'decibel': '76 dB'},
+  ];
 
   late AnimationController _pulseController;
 
@@ -54,7 +64,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
     super.initState();
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1000),
       lowerBound: 0.85,
       upperBound: 1.15,
     )..repeat(reverse: true);
@@ -62,28 +72,77 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
 
   @override
   void dispose() {
-    _soundSimulatorTimer?.cancel();
+    _stopListening();
     _pulseController.dispose();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
-  void _toggleMonitoring() {
-    setState(() {
-      _isMonitoring = !_isMonitoring;
-      if (_isMonitoring) {
-        // محاكي حي لتغيرات الصوت لإظهار حركة الواجهة
-        _soundSimulatorTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) {
+  Future<void> _startListening() async {
+    var status = await Permission.microphone.request();
+    if (status != PermissionStatus.granted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('يرجى منح إذن الميكروفون ليعمل التطبيق')),
+        );
+      }
+      return;
+    }
+
+    try {
+      _noiseMeter = NoiseMeter();
+      _noiseSubscription = _noiseMeter?.noise.listen(
+        (NoiseReading noiseReading) {
           setState(() {
-            _currentDecibel = 28.0 + (DateTime.now().millisecond % 50);
-            if (_currentDecibel > _sensitivity) {
-              _isAlarmTriggered = true;
+            _currentDecibel = noiseReading.meanDecibel;
+            if (_currentDecibel > _sensitivity && !_isAlarmTriggered) {
+              _triggerAlarm();
             }
           });
-        });
-      } else {
-        _soundSimulatorTimer?.cancel();
-        _isAlarmTriggered = false;
-      }
+        },
+        onError: (Object error) {
+          _stopListening();
+        },
+        cancelOnError: true,
+      );
+
+      setState(() {
+        _isMonitoring = true;
+      });
+    } catch (e) {
+      _stopListening();
+    }
+  }
+
+  void _stopListening() {
+    _noiseSubscription?.cancel();
+    _noiseSubscription = null;
+    setState(() {
+      _isMonitoring = false;
+      _currentDecibel = 0.0;
+    });
+  }
+
+  void _triggerAlarm() async {
+    setState(() {
+      _isAlarmTriggered = true;
+      cryLogs.insert(0, {
+        'time': 'الآن',
+        'duration': 'جاري البكاء',
+        'decibel': '${_currentDecibel.toInt()} dB',
+      });
+    });
+
+    if (await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(pattern: [500, 1000, 500, 1000], repeat: 0);
+    }
+  }
+
+  void _stopAlarm() {
+    Vibration.cancel();
+    _audioPlayer.stop();
+    setState(() {
+      _isAlarmTriggered = false;
     });
   }
 
@@ -97,7 +156,23 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
             : _currentIndex == 1
                 ? _buildSoothingSoundsScreen()
                 : _buildCryLogsScreen(),
-        bottomNavigationBar: _buildModernBottomBar(),
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: (index) {
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+          backgroundColor: Colors.white,
+          selectedItemColor: const Color(0xFFFF7E95),
+          unselectedItemColor: Colors.grey.shade400,
+          type: BottomNavigationBarType.fixed,
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.mic_rounded), label: 'المراقبة'),
+            BottomNavigationBarItem(icon: Icon(Icons.nightlight_rounded), label: 'أصوات النوم'),
+            BottomNavigationBarItem(icon: Icon(Icons.receipt_long_rounded), label: 'السجل'),
+          ],
+        ),
       ),
     );
   }
@@ -119,7 +194,6 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
                 _buildSensitivitySlider(),
                 const SizedBox(height: 30),
                 _buildMainControlButton(),
-                const SizedBox(height: 20),
               ],
             ),
           ),
@@ -129,42 +203,17 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
     );
   }
 
-  // رأس الشاشة
   Widget _buildHeader() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(15),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4)),
-            ],
-          ),
-          child: const Icon(Icons.menu_rounded, color: Color(0xFF4A4A68)),
-        ),
-        const Text(
-          'مراقب الطفل الذكي',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF2E2D4D)),
-        ),
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(15),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4)),
-            ],
-          ),
-          child: const Icon(Icons.settings_outlined, color: Color(0xFF4A4A68)),
-        ),
+      children: const [
+        Icon(Icons.child_friendly_rounded, color: Color(0xFFFF7E95), size: 28),
+        Text('مراقب الطفل الذكي', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2E2D4D))),
+        Icon(Icons.shield_outlined, color: Color(0xFF8E8AFF), size: 28),
       ],
     );
   }
 
-  // كرت الطفل
   Widget _buildBabyProfileCard() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -185,9 +234,9 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
             padding: const EdgeInsets.all(3),
             decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
             child: const CircleAvatar(
-              radius: 30,
+              radius: 28,
               backgroundColor: Color(0xFFF3E5F5),
-              child: Icon(Icons.child_care_rounded, size: 36, color: Color(0xFFFF6D8A)),
+              child: Icon(Icons.face_rounded, size: 34, color: Color(0xFFFF6D8A)),
             ),
           ),
           const SizedBox(width: 15),
@@ -195,15 +244,9 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  babyName,
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
+                Text(babyName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
                 const SizedBox(height: 4),
-                Text(
-                  'العمر: $babyAge',
-                  style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.9)),
-                ),
+                Text('العمر: $babyAge', style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.9))),
               ],
             ),
           ),
@@ -229,10 +272,9 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
     );
   }
 
-  // مؤشر الصوت النابض
   Widget _buildAudioVisualizer() {
     return Container(
-      height: 230,
+      height: 220,
       width: double.infinity,
       decoration: BoxDecoration(
         color: Colors.white,
@@ -252,7 +294,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
                 height: 140,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: const Color(0xFFFF7E95).withOpacity(0.12),
+                  color: const Color(0xFFFF7E95).withOpacity(0.15),
                 ),
               ),
             ),
@@ -265,16 +307,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
                 colors: _isMonitoring
                     ? [const Color(0xFF8E8AFF), const Color(0xFF6B65FF)]
                     : [Colors.grey.shade300, Colors.grey.shade400],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: (_isMonitoring ? const Color(0xFF8E8AFF) : Colors.grey).withOpacity(0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 6),
-                ),
-              ],
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -283,10 +316,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
                   _isMonitoring ? '${_currentDecibel.toInt()}' : '--',
                   style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
-                const Text(
-                  'dB ديسيبل',
-                  style: TextStyle(fontSize: 11, color: Colors.white70),
-                ),
+                const Text('dB ديسيبل', style: TextStyle(fontSize: 11, color: Colors.white70)),
               ],
             ),
           ),
@@ -294,7 +324,7 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
             bottom: 15,
             child: Text(
               _isMonitoring
-                  ? (_currentDecibel > 50 ? '🔊 يوجد ضجيج بالغرفة' : '💤 الغرفة هادئة جداً')
+                  ? (_currentDecibel > _sensitivity ? '🚨 تم التقاط بكاء!' : '💤 الغرفة هادئة')
                   : 'المراقبة غير مفعلة',
               style: TextStyle(
                 fontSize: 13,
@@ -308,7 +338,6 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
     );
   }
 
-  // شريط التحكم في حساسية الالتقاط
   Widget _buildSensitivitySlider() {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -325,46 +354,29 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'حساسية التقاط البكاء',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF2E2D4D)),
-              ),
-              Text(
-                '${_sensitivity.toInt()} dB',
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFFFF7E95)),
-              ),
+              const Text('حساسية التقاط البكاء', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              Text('${_sensitivity.toInt()} dB', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFFFF7E95))),
             ],
           ),
           const SizedBox(height: 5),
-          const Text(
-            'قلل القيمة لالتقاط الأصوات البعيدة والهمسات الخافتة',
-            style: TextStyle(fontSize: 11, color: Colors.grey),
-          ),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: const Color(0xFFFF7E95),
-              thumbColor: const Color(0xFFFF7E95),
-              overlayColor: const Color(0xFFFF7E95).withOpacity(0.2),
-              inactiveTrackColor: Colors.grey.shade200,
-              trackHeight: 6,
-            ),
-            child: Slider(
-              value: _sensitivity,
-              min: 30.0,
-              max: 90.0,
-              onChanged: (val) {
-                setState(() {
-                  _sensitivity = val;
-                });
-              },
-            ),
+          const Text('كلما قل الرقم زادت الحساسية للالتقاط عن بعد', style: TextStyle(fontSize: 11, color: Colors.grey)),
+          Slider(
+            value: _sensitivity,
+            min: 30.0,
+            max: 90.0,
+            activeColor: const Color(0xFFFF7E95),
+            inactiveColor: Colors.grey.shade200,
+            onChanged: (val) {
+              setState(() {
+                _sensitivity = val;
+              });
+            },
           ),
         ],
       ),
     );
   }
 
-  // زر بدء / إيقاف المراقبة
   Widget _buildMainControlButton() {
     return SizedBox(
       width: double.infinity,
@@ -373,17 +385,15 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
         style: ElevatedButton.styleFrom(
           backgroundColor: _isMonitoring ? const Color(0xFFFE5B78) : const Color(0xFF8E8AFF),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          elevation: 4,
-          shadowColor: (_isMonitoring ? const Color(0xFFFE5B78) : const Color(0xFF8E8AFF)).withOpacity(0.4),
         ),
-        onPressed: _toggleMonitoring,
+        onPressed: _isMonitoring ? _stopListening : _startListening,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(_isMonitoring ? Icons.stop_rounded : Icons.play_arrow_rounded, color: Colors.white, size: 24),
             const SizedBox(width: 8),
             Text(
-              _isMonitoring ? 'إيقاف المراقبة الآن' : 'تشغيل وضع حراسة الطفل',
+              _isMonitoring ? 'إيقاف المراقبة' : 'بدء مراقبة المايك الآن',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
             ),
           ],
@@ -392,7 +402,6 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
     );
   }
 
-  // نافذة التنبيه الفوري عند البكاء
   Widget _buildAlarmOverlay() {
     return Container(
       color: const Color(0xFFFE5B78).withOpacity(0.95),
@@ -403,15 +412,9 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
         children: [
           const Icon(Icons.notifications_active_rounded, size: 85, color: Colors.white),
           const SizedBox(height: 20),
-          Text(
-            'تنبيه! $babyName تبكي الآن 😭',
-            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
-          ),
+          Text('تنبيه! $babyName تبكي الآن 😭', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
           const SizedBox(height: 10),
-          Text(
-            'مستوى الصوت المرتفع: ${_currentDecibel.toInt()} ديسيبل',
-            style: const TextStyle(fontSize: 16, color: Colors.white70),
-          ),
+          Text('شدة الصوت: ${_currentDecibel.toInt()} ديسيبل', style: const TextStyle(fontSize: 16, color: Colors.white70)),
           const SizedBox(height: 40),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -419,30 +422,15 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
               padding: const EdgeInsets.symmetric(horizontal: 35, vertical: 15),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             ),
-            onPressed: () {
-              setState(() {
-                _isAlarmTriggered = false;
-              });
-            },
-            child: const Text(
-              'إيقاف التنبيه',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFFE5B78)),
-            ),
+            onPressed: _stopAlarm,
+            child: const Text('إيقاف التنبيه', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFFE5B78))),
           ),
         ],
       ),
     );
   }
 
-  // شاشة الأصوات المهدئة
   Widget _buildSoothingSoundsScreen() {
-    final sounds = [
-      {'title': 'صوت المطر الهادئ', 'icon': Icons.water_drop_rounded, 'color': const Color(0xFF64B5F6)},
-      {'title': 'ضوضاء بيضاء (White Noise)', 'icon': Icons.waves_rounded, 'color': const Color(0xFF81C784)},
-      {'title': 'دقات قلب الأم', 'icon': Icons.favorite_rounded, 'color': const Color(0xFFE57373)},
-      {'title': 'تهويدة النوم الكلاسيكية', 'icon': Icons.music_note_rounded, 'color': const Color(0xFFBA68C8)},
-    ];
-
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -450,45 +438,72 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('أصوات مهدئة للنوم', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 5),
-            const Text('شغّل هذه الأصوات لمساعدة طفلك على الاستغراق في النوم مجدداً', style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 20),
             Expanded(
-              child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 15,
-                  mainAxisSpacing: 15,
-                  childAspectRatio: 1.1,
-                ),
-                itemCount: sounds.length,
+              child: ListView(
+                children: [
+                  _buildSoundTile('صوت المطر الهادئ', Icons.water_drop_rounded, const Color(0xFF64B5F6)),
+                  _buildSoundTile('الضوضاء البيضاء', Icons.waves_rounded, const Color(0xFF81C784)),
+                  _buildSoundTile('دقات قلب الأم', Icons.favorite_rounded, const Color(0xFFE57373)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSoundTile(String title, IconData icon, Color color) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
+      child: Row(
+        children: [
+          CircleAvatar(backgroundColor: color.withOpacity(0.15), child: Icon(icon, color: color)),
+          const SizedBox(width: 15),
+          Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+          IconButton(
+            icon: const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF8E8AFF), size: 32),
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تشغيل: $title')));
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCryLogsScreen() {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('سجل البكاء', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            Expanded(
+              child: ListView.builder(
+                itemCount: cryLogs.length,
                 itemBuilder: (context, index) {
-                  final sound = sounds[index];
+                  final log = cryLogs[index];
                   return Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(22),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        CircleAvatar(
-                          radius: 26,
-                          backgroundColor: (sound['color'] as Color).withOpacity(0.15),
-                          child: Icon(sound['icon'] as IconData, color: sound['color'] as Color, size: 28),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(log['time']!, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text(log['duration']!, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                          ],
                         ),
-                        const SizedBox(height: 12),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text(
-                            sound['title'] as String,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                          ),
-                        ),
+                        Text(log['decibel']!, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF8E8AFF))),
                       ],
                     ),
                   );
@@ -497,97 +512,6 @@ class _MainDashboardState extends State<MainDashboard> with SingleTickerProvider
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  // شاشة سجل البكاء
-  Widget _buildCryLogsScreen() {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('سجل نوبات البكاء', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 5),
-            const Text('أوقات التنبيهات السابقة ومدة استمرارها', style: TextStyle(color: Colors.grey)),
-            const SizedBox(height: 20),
-            Expanded(
-              child: ListView(
-                children: [
-                  _buildLogTile('اليوم - 02:15 م', 'استمر لمدة دقيقة و 20 ثانية', 'شدة الصوت: 76 dB'),
-                  _buildLogTile('اليوم - 11:40 ص', 'استمر لمدة 45 ثانية', 'شدة الصوت: 68 dB'),
-                  _buildLogTile('أمس - 09:10 م', 'استمر لمدة دقيقتين', 'شدة الصوت: 82 dB'),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLogTile(String time, String duration, String decibel) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 3)),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.history_rounded, color: Color(0xFFFF7E95)),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(time, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  const SizedBox(height: 4),
-                  Text(duration, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                ],
-              ),
-            ],
-          ),
-          Text(decibel, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF8E8AFF), fontSize: 13)),
-        ],
-      ),
-    );
-  }
-
-  // الشريط السفلي للتنقل
-  Widget _buildModernBottomBar() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20, offset: const Offset(0, -4)),
-        ],
-      ),
-      child: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        backgroundColor: Colors.white,
-        selectedItemColor: const Color(0xFFFF7E95),
-        unselectedItemColor: Colors.grey.shade400,
-        showUnselectedLabels: true,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.mic_none_rounded), activeIcon: Icon(Icons.mic_rounded), label: 'المراقبة'),
-          BottomNavigationBarItem(icon: Icon(Icons.nightlight_outlined), activeIcon: Icon(Icons.nightlight_rounded), label: 'أصوات النوم'),
-          BottomNavigationBarItem(icon: Icon(Icons.receipt_long_outlined), activeIcon: Icon(Icons.receipt_long_rounded), label: 'السجل'),
-        ],
       ),
     );
   }
