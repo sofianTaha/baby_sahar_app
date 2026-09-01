@@ -14,7 +14,7 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
 
       - name: Set up Flutter
@@ -22,31 +22,13 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Setup Android Project & Permissions
+      - name: Setup Project
         run: |
           flutter create --org com.example --project-name baby_sahar_app .
-          
-          # تعديل minSdkVersion في جميع ملفات الإعدادات سواء كانت groovy أو kts
-          find android/ -name "build.gradle*" -exec sed -i 's/minSdk.*=.*/minSdk = 23/g' {} +
-          find android/ -name "build.gradle*" -exec sed -i 's/minSdkVersion.*/minSdkVersion 23/g' {} +
-
-          # إضافة الصلاحيات لملف AndroidManifest بطريقة برمجية نظيفة
-          python3 -c '
-          import os
-          path = "android/app/src/main/AndroidManifest.xml"
-          if os.path.exists(path):
-              with open(path, "r") as f:
-                  data = f.read()
-              perms = "\n    <uses-permission android:name=\"android.permission.RECORD_AUDIO\"/>\n    <uses-permission android:name=\"android.permission.VIBRATE\"/>\n"
-              if "RECORD_AUDIO" not in data:
-                  data = data.replace("<application", perms + "    <application")
-                  with open(path, "w") as f:
-                      f.write(data)
-          '
           flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --no-tree-shake-icons
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
