@@ -25,6 +25,7 @@ jobs:
       - name: Create Flutter skeleton
         run: |
           flutter create --org com.example .
+          sed -i '/<application/i <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n<uses-permission android:name="android.permission.VIBRATE"/>' android/app/src/main/AndroidManifest.xml
           flutter pub get
 
       - name: Build APK
