@@ -22,35 +22,27 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Install ImageMagick
-        run: sudo apt-get update && sudo apt-get install -y imagemagick
-
-      - name: Configure Flutter Skeleton & Baby Icon
+      - name: Setup Android Project
         run: |
           flutter create --org com.example --project-name baby_sahar_app .
-          
-          # إعداد إذن الميكروفون
-          sed -i 's/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">\n    <uses-permission android:name="android.permission.RECORD_AUDIO"\/>\n    <uses-permission android:name="android.permission.VIBRATE"\/>/' android/app/src/main/AndroidManifest.xml
-          
-          # إنشاء وتصميم أيقونة طفل لطيفة بجودة عالية
-          convert -size 512x512 xc:"#FFF0F3" \
-            -fill "#FF8DA1" -draw "circle 256,256 256,30" \
-            -fill "#FFE5EC" -draw "circle 256,260 256,90" \
-            -fill "#4A4A68" -draw "circle 200,240 200,225" \
-            -fill "#4A4A68" -draw "circle 312,240 312,225" \
-            -fill "#FF6D8A" -draw "circle 175,275 175,260" \
-            -fill "#FF6D8A" -draw "circle 337,275 337,260" \
-            -fill "#FF6D8A" -draw "circle 256,315 256,290" \
-            -fill "#FFFFFF" -draw "circle 256,315 256,305" \
-            baby_icon.png
-          
-          # توزيع الأيقونة بجميع مقاسات شاشات الأندرويد
-          for dir in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
-            mkdir -p android/app/src/main/res/$dir
-            convert baby_icon.png -resize 192x192 android/app/src/main/res/$dir/ic_launcher.png
-          done
-          
           flutter pub get
+
+      - name: Add Permissions to AndroidManifest
+        run: |
+          python3 -c '
+          path = "android/app/src/main/AndroidManifest.xml"
+          with open(path, "r") as f:
+              content = f.read()
+          perms = """
+              <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+              <uses-permission android:name="android.permission.VIBRATE"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+          """
+          if "<application" in content and "RECORD_AUDIO" not in content:
+              content = content.replace("<application", perms + "\n    <application")
+              with open(path, "w") as f:
+                  f.write(content)
+          '
 
       - name: Build APK
         run: flutter build apk --release
